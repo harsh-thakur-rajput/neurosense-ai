@@ -15,7 +15,7 @@ print("[SYSTEM] Booting Deep Learning Core (LSTM)...")
 
 # 1. Firebase se connect karna (Apni key ka naam dhyan rakhein)
 cred = credentials.Certificate("firebase-keys.json") 
-firebase_admin.initialize_app(cred, {'databaseURL': 'https://ventilator-monitoring-system-default-rtdb.asia-southeast1.firebasedatabase.app/'})
+firebase_admin.initialize_app(cred, {'databaseURL': 'Add Data Base Url here'})
 
 scaler = MinMaxScaler(feature_range=(0, 1))
 
