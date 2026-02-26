@@ -35,18 +35,20 @@
 
 2. **Install Python Dependencies**
    Ensure Python 3.x is installed, then run:
+   ```bash
    pip install tensorflow scikit-learn pandas numpy firebase-admin
 
-3. **Configure Environment Secrets**
+4. **Configure Environment Secrets**
 
    Place your firebase-keys.json (Admin SDK key) in the root directory.
 
    Update the firebaseConfig in index.html with your project's Web API keys.
 
-4. **Initialize Cloud AI Engine**
+5. **Initialize Cloud AI Engine**
+     ```bash
      python ml_backend.py
 
-5. Launch Dashboard
+7. **Launch Dashboard**
    Open index.html in any modern web browser.
 
 Lead Developer: Harsh Thakur
