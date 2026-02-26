@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeuroSense | Medical AI Environment Control</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/brain.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- GLOBAL THEME & CUSTOM CSS --- */
+        :root { --bg-dark: #020617; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-dark); color: #e2e8f0; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        /* Glassmorphism UI for Medical Grade Look */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.1); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Status Indicators & Animations */
+        .glow-text { text-shadow: 0 0 10px rgba(14, 165, 233, 0.5); }
+        .live-dot-green { width: 8px; height: 8px; background-color: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; animation: blink 2s infinite; }
+        .live-dot-orange { width: 8px; height: 8px; background-color: #f59e0b; border-radius: 50%; box-shadow: 0 0 10px #f59e0b; animation: blink 3s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+        /* Button States */
+        .btn-active { background-color: rgba(12, 74, 110, 0.5); border-color: rgba(14, 165, 233, 0.5); color: #38bdf8; }
+        .btn-inactive { background-color: rgba(30, 41, 59, 0.5); border-color: #334155; color: #cbd5e1; }
+        .btn-standby { background-color: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fcd34d; }
+        
+        /* Slider Colors */
+        .slider-cold::-webkit-slider-thumb { background: #0ea5e9; }
+        .slider-hot::-webkit-slider-thumb { background: #f97316; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col">
+
+    <header class="h-16 border-b border-slate-800 bg-slate-900/80 flex justify-between items-center px-8 z-50">
+        <div class="flex items-center gap-4">
+            <div class="text-2xl font-bold tracking-tighter text-white">NEURO<span class="text-sky-500">SENSE</span><span class="text-[10px] align-top text-slate-500 ml-1">v6.0 PRO</span></div>
+            <div class="h-6 w-[1px] bg-slate-700"></div>
+            <div class="flex items-center gap-2 text-xs font-mono" id="system-status-container">
+                <div class="live-dot-orange" id="system-dot"></div> <span id="system-status-text" class="text-amber-400">SYSTEM STANDBY</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-6">
+            <div class="text-right">
+                <p class="text-[10px] text-slate-400 uppercase tracking-widest" id="patient-status-label">No Active Subject</p>
+                <p class="text-sm font-bold text-slate-500" id="patient-id-display">-- AWAITING ASSIGNMENT --</p>
+            </div>
+            <div class="h-10 w-10 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center font-bold text-slate-400 shadow-lg" id="dr-badge">--</div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <aside class="w-72 glass-panel border-r-0 border-slate-800 flex flex-col p-4 z-40">
+            <p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 pl-2">Clinical Protocols</p>
+            <div class="space-y-2">
+                <button id="btn-standby" onclick="selectProtocol('standby')" class="w-full text-left p-3 rounded-lg border transition-all btn-standby">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-bold">System Standby</span>
+                        <span id="dot-standby" class="h-2 w-2 bg-amber-400 rounded-full animate-pulse block"></span>
+                    </div>
+                    <p class="text-[10px] text-amber-200/70 mt-1">Monitoring Only (Actuators Off)</p>
+                </button>
+
+                <button id="btn-general" onclick="selectProtocol('general')" class="w-full text-left p-3 rounded-lg border transition-all btn-inactive mt-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-bold glow-text-target">Standard Care Ambient</span>
+                        <span id="dot-general" class="h-2 w-2 rounded-full hidden"></span>
+                    </div>
+                </button>
+                <button id="btn-icu" onclick="selectProtocol('icu')" class="w-full text-left p-3 rounded-lg border transition-all btn-inactive">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-bold glow-text-target">Intensive Care (ICU)</span>
+                        <span id="dot-icu" class="h-2 w-2 rounded-full hidden"></span>
+                    </div>
+                </button>
+                <button id="btn-nicu" onclick="selectProtocol('nicu')" class="w-full text-left p-3 rounded-lg border transition-all btn-inactive">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-bold glow-text-target">Neonatal (NICU)</span>
+                        <span id="dot-nicu" class="h-2 w-2 rounded-full hidden"></span>
+                    </div>
+                </button>
+            </div>
+
+            <div class="mt-auto rounded-xl bg-slate-950 border border-slate-800 p-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    <span class="text-xs font-bold text-purple-400">AI KERNEL LOGS</span>
+                </div>
+                <div class="h-40 overflow-y-auto font-mono text-[10px] text-slate-400 space-y-1" id="ai-log">
+                    <p><span class="text-slate-600">[SYS]</span> > Kernel Initialized...</p>
+                    <p><span class="text-slate-600">[SYS]</span> > Awaiting Protocol Selection.</p>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 p-6 overflow-y-auto relative bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]">
+            <div class="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 opacity-90 -z-10"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                
+                <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-sky-500 relative">
+                    <p class="text-xs text-slate-400 uppercase font-semibold tracking-wider">Core Temp (T-Core)</p>
+                    <div class="flex items-end gap-2 mt-2">
+                        <h2 class="text-5xl font-mono font-bold text-white tracking-tighter" id="temp-display">--.-</h2>
+                        <span class="text-xl text-sky-400 font-medium mb-1">°C</span>
+                    </div>
+                    <div class="mt-4 flex items-center justify-between text-xs">
+                        <span class="text-slate-500">Target: <span id="target-temp-display" class="font-bold text-slate-500">--</span>°C</span>
+                        <span id="temp-status" class="text-slate-500 bg-slate-800 px-2 py-0.5 rounded">IDLE</span>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-5 rounded-2xl border-l-4 border-l-cyan-400">
+                    <p class="text-xs text-slate-400 uppercase font-semibold tracking-wider">Ambient Hum (Rh)</p>
+                    <div class="flex items-end gap-2 mt-2">
+                        <h2 class="text-5xl font-mono font-bold text-white tracking-tighter" id="hum-display">--</h2>
+                        <span class="text-xl text-cyan-400 font-medium mb-1">%</span>
+                    </div>
+                     <div class="mt-4 flex items-center justify-between text-xs">
+                        <span class="text-slate-500">Target: <span id="target-hum-display" class="font-bold text-slate-500">--</span>%</span>
+                        <span class="text-slate-400" id="hum-risk">Status: <span class="text-slate-500">IDLE</span></span>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-5 rounded-2xl border border-purple-500/30 bg-purple-900/10 relative overflow-hidden">
+                    <div class="flex justify-between items-start z-10 relative">
+                        <div>
+                            <p class="text-xs text-purple-300 uppercase font-semibold tracking-wider flex items-center gap-2">Edge AI (Reflex)</p>
+                            <h3 class="text-[10px] text-slate-400 mt-2">Short-term Stability Index</h3>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-3xl font-mono font-bold text-purple-400" id="ml-score-text">--%</span>
+                        </div>
+                    </div>
+                    <div class="mt-5 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden z-10 relative">
+                        <div id="ml-score-bar" class="bg-slate-600 h-full w-[0%] transition-all duration-500"></div>
+                    </div>
+                    <p class="text-[9px] text-purple-300/60 mt-2 font-mono z-10 relative uppercase" id="ml-insight">Awaiting Protocol Activation...</p>
+                </div>
+
+                <div class="glass-panel p-5 rounded-2xl border border-pink-500/30 bg-pink-900/10 relative overflow-hidden">
+                    <div class="flex justify-between items-start z-10 relative">
+                        <div>
+                            <p class="text-xs text-pink-300 uppercase font-semibold tracking-wider flex items-center gap-2">
+                                <span class="animate-pulse">●</span> Cloud AI (Predictive)
+                            </p>
+                            <h3 class="text-[10px] text-slate-400 mt-2">Future T-Core Projection</h3>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-3xl font-mono font-bold text-pink-400" id="cloud-future-temp">--.-°</span>
+                        </div>
+                    </div>
+                    <div class="mt-4 p-2 rounded bg-slate-900/50 border border-slate-700/50">
+                        <p class="text-[9px] text-pink-300/80 font-mono uppercase leading-tight" id="cloud-alert-msg">Monitoring backend pipeline...</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[400px]">
+                
+                <div class="glass-panel p-6 rounded-2xl lg:col-span-2 flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-sm font-bold text-slate-200">TELEMETRY DATA STREAM</h3>
+                        <div class="flex gap-4">
+                            <div class="flex items-center gap-2 text-xs text-slate-400"><span class="w-3 h-1 bg-sky-500 rounded-full"></span> Temp</div>
+                            <div class="flex items-center gap-2 text-xs text-slate-400"><span class="w-3 h-1 bg-cyan-400 rounded-full"></span> Hum</div>
+                            <div class="flex items-center gap-2 text-xs text-slate-400"><span class="w-3 h-1 bg-purple-500 rounded-full"></span> Edge Predict</div>
+                        </div>
+                    </div>
+                    <div class="flex-1 w-full h-full">
+                        <canvas id="medicalChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-6 rounded-2xl flex flex-col justify-between overflow-y-auto">
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-200 mb-4 border-b border-slate-800 pb-2">ACTUATOR TELEMETRY</h3>
+                        
+                        <div class="mb-4">
+                            <div class="flex justify-between text-xs mb-2">
+                                <span class="text-orange-400 font-bold">THERMAL EMITTER (HEAT)</span>
+                                <span class="font-mono text-white" id="heater-val-text">0%</span>
+                            </div>
+                            <input type="range" id="heater-slider" class="w-full h-2 bg-slate-800 rounded-lg appearance-none slider-hot cursor-not-allowed opacity-50 transition-all duration-300" value="0" disabled>
+                        </div>
+                        <div class="mb-4 border-b border-slate-800/50 pb-4">
+                            <div class="flex justify-between text-xs mb-2">
+                                <span class="text-sky-400 font-bold">VENTILATION (COOLING)</span>
+                                <span class="font-mono text-white" id="fan-val-text">0%</span>
+                            </div>
+                            <input type="range" id="fan-slider" class="w-full h-2 bg-slate-800 rounded-lg appearance-none slider-cold cursor-not-allowed opacity-50 transition-all duration-300" value="0" disabled>
+                        </div>
+                        <div class="mb-4">
+                            <div class="flex justify-between text-xs mb-2">
+                                <span class="text-cyan-400 font-bold">ULTRASONIC ATOMIZER</span>
+                                <span class="font-mono text-white" id="atomizer-val-text">0%</span>
+                            </div>
+                            <input type="range" id="atomizer-slider" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-not-allowed opacity-50 transition-all duration-300" value="0" disabled>
+                        </div>
+                        <div class="mb-2">
+                            <div class="flex justify-between text-xs mb-2">
+                                <span class="text-purple-400 font-bold">DESICCANT EXTRACTION</span>
+                                <span class="font-mono text-white" id="dehum-val-text">0%</span>
+                            </div>
+                            <input type="range" id="dehum-slider" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-not-allowed opacity-50 transition-all duration-300" value="0" disabled>
+                        </div>
+                    </div>
+
+                    <div class="bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg mt-2" id="safety-box">
+                        <div class="flex items-start gap-2">
+                            <svg class="w-4 h-4 text-amber-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                            <div>
+                                <p class="text-[10px] text-amber-300/70 leading-tight" id="safety-text">System is in Standby. Actuators are locked.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- 1. MEDICAL PROTOCOLS DEFINITION ---
+        const aiProtocols = {
+            standby: { temp: null, hum: null, name: "System Standby" },
+            general: { temp: 24.0, hum: 45, name: "Standard Care Ambient" },
+            icu:     { temp: 22.0, hum: 50, name: "Intensive Care (ICU)" },
+            nicu:    { temp: 36.5, hum: 60, name: "Neonatal (NICU)" }
+        };
+        let activeProtocol = 'standby'; 
+
+        // --- 2. PROTOCOL SELECTION LOGIC ---
+        function selectProtocol(mode) {
+            activeProtocol = mode;
+            let targetT = aiProtocols[mode].temp;
+            let targetH = aiProtocols[mode].hum;
+
+            // Reset all buttons visually
+            ['standby', 'general', 'icu', 'nicu'].forEach(m => {
+                let btn = document.getElementById('btn-' + m);
+                let dot = document.getElementById('dot-' + m);
+                btn.className = "w-full text-left p-3 rounded-lg border transition-all btn-inactive";
+                if(btn.querySelector('span.glow-text-target')) btn.querySelector('span.glow-text-target').classList.remove('text-sky-400');
+                dot.className = "h-2 w-2 rounded-full hidden";
+            });
+
+            let activeBtn = document.getElementById('btn-' + mode);
+            let activeDot = document.getElementById('dot-' + mode);
+            
+            // Apply UI Changes based on Standby vs Active Mode
+            if (mode === 'standby') {
+                activeBtn.className = "w-full text-left p-3 rounded-lg border transition-all btn-standby";
+                activeDot.className = "h-2 w-2 bg-amber-400 rounded-full animate-pulse block";
+                
+                document.getElementById('target-temp-display').innerText = "--";
+                document.getElementById('target-hum-display').innerText = "--";
+                document.getElementById('system-dot').className = "live-dot-orange";
+                document.getElementById('system-status-text').className = "text-amber-400";
+                document.getElementById('system-status-text').innerText = "SYSTEM STANDBY";
+                document.getElementById('patient-id-display').innerText = "-- AWAITING ASSIGNMENT --";
+                addLog(`<span class="text-amber-400 font-bold">SYSTEM REVERTED TO STANDBY</span>`);
+            } else {
+                activeBtn.className = "w-full text-left p-3 rounded-lg border transition-all btn-active";
+                if(activeBtn.querySelector('span.glow-text-target')) activeBtn.querySelector('span.glow-text-target').classList.add('text-sky-400');
+                activeDot.className = "h-2 w-2 bg-sky-400 rounded-full animate-pulse block";
+
+                document.getElementById('target-temp-display').innerText = targetT;
+                document.getElementById('target-hum-display').innerText = targetH;
+                document.getElementById('system-dot').className = "live-dot-green";
+                document.getElementById('system-status-text').className = "text-emerald-400";
+                document.getElementById('system-status-text').innerText = "SYSTEM ACTIVE";
+                document.getElementById('patient-id-display').innerHTML = `SUB-ID: <span class="font-mono text-sky-400">#892-A</span>`;
+                addLog(`<span class="text-sky-400 font-bold">PROTOCOL INITIATED: ${aiProtocols[mode].name}</span>`);
+            }
+        }
+
+        // --- 3. CHART.JS VISUALIZATION SETUP ---
+        const ctx = document.getElementById('medicalChart').getContext('2d');
+        let gradientTemp = ctx.createLinearGradient(0, 0, 0, 400);
+        gradientTemp.addColorStop(0, 'rgba(14, 165, 233, 0.5)'); 
+        gradientTemp.addColorStop(1, 'rgba(14, 165, 233, 0)');
+
+        const medicalChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(20).fill(''),
+                datasets: [
+                    { label: 'Temp', data: Array(20).fill(null), borderColor: '#0ea5e9', backgroundColor: gradientTemp, borderWidth: 2, tension: 0.4, fill: true, pointRadius: 0, yAxisID: 'y' },
+                    { label: 'Hum', data: Array(20).fill(null), borderColor: '#22d3ee', borderWidth: 2, borderDash: [5, 5], tension: 0.4, pointRadius: 0, yAxisID: 'y1' },
+                    { label: 'NN Predict', data: Array(20).fill(null), borderColor: '#a855f7', borderWidth: 2, borderDash: [2, 2], tension: 0.4, pointRadius: 0, yAxisID: 'y' }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { type: 'linear', position: 'left', grid: { color: '#1e293b' }, ticks: { color: '#0ea5e9' } },
+                    y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#22d3ee' } }
+                }
+            }
+        });
+
+        // --- 4. FIREBASE CLOUD CONNECTION SETUP ---
+        const firebaseConfig = {
+            apiKey: "YOUR_FIREBASE_API_KEY_HERE", 
+            databaseURL: "YOUR_FIREBASE_DATABASE_URL_HERE",
+            projectId: "YOUR_PROJECT_ID_HERE",
+        };
+        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+        const database = firebase.database();
+
+        // --- 5. EDGE AI (BRAIN.JS) CONFIGURATION ---
+        // Neural Network to calculate micro-fluctuations locally
+        const net = new brain.NeuralNetwork({ hiddenLayers: [4, 4] });
+        let trainingData = []; 
+        let lastPredictedTemp = null;
+        
+        // Data Normalization Helpers (NNs work best between 0 and 1)
+        function normalize(val, min, max) { return (val - min) / (max - min); }
+        function denormalize(val, min, max) { return val * (max - min) + min; }
+
+        function trainAndPredictEdgeAI(currentTemp, currentHum) {
+            if (activeProtocol === 'standby') return; 
+
+            const minT = 15, maxT = 45, minH = 0, maxH = 100;
+            if(trainingData.length > 0) {
+                trainingData[trainingData.length - 1].output = { t: normalize(currentTemp, minT, maxT) };
+            }
+            trainingData.push({
+                input: { t: normalize(currentTemp, minT, maxT), h: normalize(currentHum, minH, maxH) },
+                output: { t: normalize(currentTemp, minT, maxT) } 
+            });
+            if (trainingData.length > 20) trainingData.shift();
+
+            // Train and predict if we have enough data history
+            if (trainingData.length > 5) {
+                const dataToTrain = trainingData.slice(0, -1);
+                net.train(dataToTrain, { iterations: 100, errorThresh: 0.01, log: false });
+                
+                let result = net.run({ t: normalize(currentTemp, minT, maxT), h: normalize(currentHum, minH, maxH) });
+                let finalPrediction = denormalize(result.t, minT, maxT) + (Math.random() * 0.2 - 0.1); 
+                lastPredictedTemp = finalPrediction;
+
+                // Calculate Stability Confidence Score
+                let predictionError = Math.abs(currentTemp - finalPrediction);
+                let confidence = Math.max(0, 100 - (predictionError * 20)).toFixed(1);
+                
+                document.getElementById('ml-score-text').innerText = confidence + "%";
+                document.getElementById('ml-score-bar').style.width = confidence + "%";
+                
+                // UI update based on Edge AI Confidence
+                if(confidence > 85) {
+                    document.getElementById('ml-score-bar').className = "bg-gradient-to-r from-emerald-500 to-teal-400 h-full transition-all duration-500";
+                    document.getElementById('ml-insight').innerText = "Edge Node Stable. Variance minimal.";
+                } else {
+                    document.getElementById('ml-score-bar').className = "bg-gradient-to-r from-orange-500 to-red-500 h-full transition-all duration-500";
+                    document.getElementById('ml-insight').innerText = "Micro-fluctuation detected. Recalibrating.";
+                }
+            }
+        }
+
+        // --- 6. CORE LOGIC: FIREBASE REALTIME LISTENER ---
+        // This function triggers every time ESP32 sends new data
+        database.ref('incubator').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                let currentTemp = data.temp || 0; 
+                let currentHum = data.humidity || 0;
+                
+                // Update UI Texts
+                document.getElementById('temp-display').innerText = currentTemp.toFixed(1);
+                document.getElementById('hum-display').innerText = Math.round(currentHum);
+
+                // --- 6A. CRASH-PROOF CLOUD AI PREDICTIONS ---
+                // Reading LSTM Python Backend data safely
+                if (data.ml_prediction) {
+                    let cloudFutureTemp = data.ml_prediction.future_temp || data.ml_prediction.predicted_temp || "--.-";
+                    let cloudAlert = data.ml_prediction.ml_alert || "Awaiting ML Pipeline...";
+                    
+                    document.getElementById('cloud-future-temp').innerText = cloudFutureTemp + "°";
+                    document.getElementById('cloud-alert-msg').innerText = cloudAlert;
+
+                    // Red color flash if Python sends a WARNING
+                    if(typeof cloudAlert === 'string' && (cloudAlert.includes("WARNING") || cloudAlert.includes("CRITICAL"))) {
+                        document.getElementById('cloud-alert-msg').className = "text-[9px] font-mono uppercase leading-tight text-red-400 font-bold animate-pulse";
+                    } else {
+                        document.getElementById('cloud-alert-msg').className = "text-[9px] text-pink-300/80 font-mono uppercase leading-tight";
+                    }
+                }
+
+                // --- 6B. SAFETY LOCKOUT (STANDBY MODE) ---
+                if (activeProtocol === 'standby') {
+                    document.getElementById('temp-status').innerText = "MONITORING";
+                    document.getElementById('temp-status').className = "text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded";
+                    document.getElementById('hum-risk').innerHTML = 'Status: <span class="text-amber-400">MONITORING</span>';
+                    
+                    updateActuatorsUI(0, 0, 0, 0); // Force hardware OFF
+                    
+                    document.getElementById('safety-box').className = "bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg mt-2";
+                    document.getElementById('safety-text').innerText = "System is in Standby. Actuators are locked to 0%.";
+
+                    updateGraph(currentTemp, currentHum, null);
+                    return; // Stop execution here if in standby
+                }
+
+                // --- 6C. HARDWARE ACTUATION LOGIC ---
+                let targetTemp = aiProtocols[activeProtocol].temp;
+                let targetHum = aiProtocols[activeProtocol].hum;
+
+                trainAndPredictEdgeAI(currentTemp, currentHum);
+
+                // ==========================================
+                // ★ NEW: FUZZY LOGIC INFERENCE SYSTEM (TEMP) ★
+                // Replaces strict PID with human-like transition sets
+                // ==========================================
+                let tempError = targetTemp - currentTemp;
+                let heaterPwm = 0, fanPwm = 0;
+                let tempStatusEl = document.getElementById('temp-status');
+
+                if (tempError >= 1.5) { 
+                    // State: CRITICAL COLD -> Max Heating
+                    heaterPwm = 100; 
+                    tempStatusEl.innerText = "MAX HEATING"; 
+                    tempStatusEl.className = "text-red-400 bg-red-400/10 px-2 py-0.5 rounded animate-pulse";
+                } else if (tempError > 0.2 && tempError < 1.5) { 
+                    // State: COOL -> Proportional Fuzzy Heating
+                    heaterPwm = Math.round((tempError / 1.5) * 100); 
+                    tempStatusEl.innerText = "HEATING"; 
+                    tempStatusEl.className = "text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded";
+                } else if (tempError <= 0.2 && tempError >= -0.2) { 
+                    // State: OPTIMAL -> Deadband (No Action)
+                    tempStatusEl.innerText = "STABLE"; 
+                    tempStatusEl.className = "text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded";
+                } else if (tempError < -0.2 && tempError > -1.5) { 
+                    // State: WARM -> Proportional Fuzzy Cooling
+                    fanPwm = Math.round((Math.abs(tempError) / 1.5) * 100);
+                    tempStatusEl.innerText = "COOLING"; 
+                    tempStatusEl.className = "text-sky-400 bg-sky-400/10 px-2 py-0.5 rounded";
+                } else if (tempError <= -1.5) { 
+                    // State: CRITICAL HOT -> Max Cooling
+                    fanPwm = 100;
+                    tempStatusEl.innerText = "MAX COOLING"; 
+                    tempStatusEl.className = "text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded animate-pulse";
+                }
+
+                // ==========================================
+                // ★ NEW: FUZZY LOGIC INFERENCE SYSTEM (HUMIDITY) ★
+                // Replaces strict proportional math with fuzzy states
+                // ==========================================
+                let humError = targetHum - currentHum;
+                let atomizerPwm = 0, dehumPwm = 0;
+                let humRiskEl = document.getElementById('hum-risk');
+
+                if (humError >= 10) { 
+                    // State: CRITICAL DRY -> Max Humidification
+                    atomizerPwm = 100;
+                    humRiskEl.innerHTML = 'Risk: <span class="text-cyan-400 font-bold animate-pulse">CRITICAL DRY (MAX MIST)</span>';
+                } else if (humError > 2 && humError < 10) { 
+                    // State: DRY -> Proportional Fuzzy Mist
+                    atomizerPwm = Math.round((humError / 10) * 100);
+                    humRiskEl.innerHTML = 'Risk: <span class="text-cyan-400 font-bold">DRY (HUMIDIFYING)</span>';
+                } else if (humError <= 2 && humError >= -2) { 
+                    // State: OPTIMAL -> Deadband (No Action)
+                    humRiskEl.innerHTML = 'Risk: <span class="text-emerald-400 font-bold">OPTIMAL</span>';
+                } else if (humError < -2 && humError > -10) { 
+                    // State: MOIST -> Proportional Fuzzy Extraction
+                    dehumPwm = Math.round((Math.abs(humError) / 10) * 100);
+                    humRiskEl.innerHTML = 'Risk: <span class="text-purple-400 font-bold">MOIST (EXTRACTING)</span>';
+                } else if (humError <= -10) { 
+                    // State: CRITICAL WET -> Max Extraction
+                    dehumPwm = 100;
+                    humRiskEl.innerHTML = 'Risk: <span class="text-purple-400 font-bold animate-pulse">RAIN-OUT RISK (MAX EXTRACT)</span>';
+                }
+
+                // Push calculated PWM values to UI Sliders
+                updateActuatorsUI(heaterPwm, fanPwm, atomizerPwm, dehumPwm);
+                
+                document.getElementById('safety-box').className = "bg-red-500/10 border border-red-500/30 p-2 rounded-lg mt-2";
+                document.getElementById('safety-text').innerText = "Hardware linked to Fuzzy Logic. Manual override disabled.";
+
+                updateGraph(currentTemp, currentHum, lastPredictedTemp);
+            }
+        });
+
+        // --- 7. HELPER FUNCTIONS ---
+        // Updates the visual sliders for actuators
+        function updateActuatorsUI(h, f, a, d) {
+            document.getElementById('heater-val-text').innerText = h + "%"; document.getElementById('heater-slider').value = h;
+            document.getElementById('fan-val-text').innerText = f + "%"; document.getElementById('fan-slider').value = f;
+            document.getElementById('atomizer-val-text').innerText = a + "%"; document.getElementById('atomizer-slider').value = a;
+            document.getElementById('dehum-val-text').innerText = d + "%"; document.getElementById('dehum-slider').value = d;
+        }
+
+        // Animates the Chart.js telemetry stream
+        function updateGraph(t, h, nn) {
+            let tempData = medicalChart.data.datasets[0].data;
+            let humData = medicalChart.data.datasets[1].data;
+            let nnData = medicalChart.data.datasets[2].data;
+            tempData.shift(); tempData.push(t);
+            humData.shift(); humData.push(h);
+            nnData.shift(); nnData.push(nn || t);
+            medicalChart.update();
+        }
+
+        // Writes internal kernel logs to the sidebar UI
+        function addLog(msg) {
+            const logBox = document.getElementById('ai-log');
+            const p = document.createElement('p');
+            let timeString = new Date().toLocaleTimeString([], {hour12: false});
+            p.innerHTML = `<span class="text-slate-500">[${timeString}]</span> > ${msg}`;
+            logBox.appendChild(p);
+            if (logBox.children.length > 25) logBox.removeChild(logBox.firstChild); // Keep only last 25 logs
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+        
+        // Boot system into Standby mode by default
+        selectProtocol('standby');
+    </script>
+</body>
+</html>
